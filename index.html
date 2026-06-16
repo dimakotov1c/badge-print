@@ -6,8 +6,8 @@
 <title>Печать этикеток участников</title>
 <style>
   :root {
-    --label-w: 90mm;
-    --label-h: 58mm;
+    --label-w: 100mm;
+    --label-h: 50mm;
     --name-size: 7mm;
     --line-size: 6mm;
   }
@@ -38,6 +38,7 @@
 
   input[type="file"],
   input[type="number"],
+  select,
   textarea {
     width: 100%;
     font-size: 16px;                 /* >=16px чтобы iOS не зумил */
@@ -153,8 +154,8 @@
   <div class="card">
     <h2>2. Размер этикетки и шрифта</h2>
     <div class="row">
-      <div><label class="field" for="w">Ширина, мм</label><input type="number" id="w" value="90" min="10" step="1"></div>
-      <div><label class="field" for="h">Высота, мм</label><input type="number" id="h" value="58" min="10" step="1"></div>
+      <div><label class="field" for="w">Ширина, мм</label><input type="number" id="w" value="100" min="10" step="1"></div>
+      <div><label class="field" for="h">Высота, мм</label><input type="number" id="h" value="50" min="10" step="1"></div>
     </div>
     <div class="row">
       <div><label class="field" for="ns">Шрифт имени, мм</label><input type="number" id="ns" value="7" min="2" step="0.5"></div>
@@ -162,7 +163,7 @@
     </div>
     <div class="hint" style="margin-top:8px">
       На iPhone финальный размер бумаги задаёт сам принтер в диалоге печати —
-      если будет выбор носителя, укажите 90×58 мм.
+      если будет выбор носителя, укажите 100×50 мм.
     </div>
   </div>
 
@@ -183,11 +184,30 @@
       <button class="secondary" id="nextBtn">Вперёд ›</button>
     </div>
 
+    <div class="row" style="margin-top:14px">
+      <div>
+        <label class="field" for="rot">Поворот картинки</label>
+        <select id="rot">
+          <option value="0">0°</option>
+          <option value="90" selected>90°</option>
+          <option value="180">180°</option>
+          <option value="270">270°</option>
+        </select>
+      </div>
+    </div>
+
     <div style="height:12px"></div>
-    <button id="printBtn">🖨️ Печать текущей этикетки</button>
-    <div class="hint" style="margin-top:8px">
-      Печатается только показанная этикетка. После печати нажмите «Вперёд ›»
-      и распечатайте следующую.
+    <button id="shareBtn">📤 Отправить на принтер (картинкой)</button>
+    <div style="height:10px"></div>
+    <button class="secondary" id="downloadBtn">⤓ Сохранить картинку</button>
+    <div style="height:10px"></div>
+    <button class="secondary" id="printBtn">🖨️ Обычная печать (AirPrint)</button>
+
+    <div class="hint" style="margin-top:10px">
+      «Отправить на принтер» формирует этикетку как картинку PNG и открывает меню
+      «Поделиться» — выберите приложение вашего термопринтера (или «Сохранить изображение»).
+      Если направление печати не то — поменяйте «Поворот картинки».
+      После печати нажмите «Вперёд ›» для следующей.
     </div>
   </div>
 </div>
@@ -279,6 +299,8 @@ function renderCurrent() {
     $("prevBtn").disabled = true;
     $("nextBtn").disabled = true;
     $("printBtn").disabled = true;
+    $("shareBtn").disabled = true;
+    $("downloadBtn").disabled = true;
     setStatus("Нет данных — загрузите список", false);
     return;
   }
@@ -292,6 +314,8 @@ function renderCurrent() {
   $("prevBtn").disabled = current === 0;
   $("nextBtn").disabled = current === rows.length - 1;
   $("printBtn").disabled = false;
+  $("shareBtn").disabled = false;
+  $("downloadBtn").disabled = false;
   setStatus("Загружено этикеток: " + rows.length, false);
 }
 
@@ -308,8 +332,8 @@ function setStatus(msg, isError) {
 
 function applySizes() {
   const r = document.documentElement.style;
-  r.setProperty("--label-w", ($("w").value || 90) + "mm");
-  r.setProperty("--label-h", ($("h").value || 58) + "mm");
+  r.setProperty("--label-w", ($("w").value || 100) + "mm");
+  r.setProperty("--label-h", ($("h").value || 50) + "mm");
   r.setProperty("--name-size", ($("ns").value || 7) + "mm");
   r.setProperty("--line-size", ($("ls").value || 6) + "mm");
 }
@@ -353,6 +377,118 @@ $("demoBtn").addEventListener("click", () => {
   $("paste").value = demo;
   buildRows(demo);
   renderCurrent();
+});
+
+/* ---------- Генерация этикетки как картинки (PNG) ---------- */
+const DPMM = 8; // точек на мм (~203 dpi — типичное разрешение термопринтера)
+
+function wrapLines(ctx, text, maxW) {
+  const words = String(text).split(/\s+/).filter(Boolean);
+  if (words.length === 0) return [""];
+  const lines = [];
+  let cur = words[0];
+  for (let i = 1; i < words.length; i++) {
+    const test = cur + " " + words[i];
+    if (ctx.measureText(test).width <= maxW) cur = test;
+    else { lines.push(cur); cur = words[i]; }
+  }
+  lines.push(cur);
+  return lines;
+}
+
+function buildLabelCanvas(row) {
+  const S = DPMM;
+  const W = Math.round((parseFloat($("w").value) || 100) * S);
+  const H = Math.round((parseFloat($("h").value) || 50) * S);
+  const nameMm = parseFloat($("ns").value) || 7;
+  const lineMm = parseFloat($("ls").value) || 6;
+  const padX = Math.round(5 * S), padY = Math.round(4 * S), gap = Math.round(2 * S);
+  const availW = W - 2 * padX, availH = H - 2 * padY;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext("2d");
+
+  function layout(scale) {
+    const nPx = nameMm * S * scale, lPx = lineMm * S * scale;
+    const blocks = [];
+    ctx.font = "bold " + nPx + "px Arial, sans-serif";
+    blocks.push({ lines: wrapLines(ctx, row.name, availW), px: nPx, bold: true });
+    ctx.font = lPx + "px Arial, sans-serif";
+    for (const l of row.lines) blocks.push({ lines: wrapLines(ctx, l, availW), px: lPx, bold: false });
+    let total = 0;
+    for (let i = 0; i < blocks.length; i++) {
+      total += blocks[i].lines.length * blocks[i].px * 1.2;
+      if (i > 0) total += gap;
+    }
+    return { blocks, total };
+  }
+
+  let fit = 1, L = layout(fit);
+  while (L.total > availH && fit > 0.4) { fit -= 0.05; L = layout(fit); }
+
+  ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = "#000";
+  ctx.textAlign = "center"; ctx.textBaseline = "top";
+
+  let y = padY + Math.max(0, (availH - L.total) / 2);
+  for (let i = 0; i < L.blocks.length; i++) {
+    const b = L.blocks[i];
+    if (i > 0) y += gap;
+    ctx.font = (b.bold ? "bold " : "") + b.px + "px Arial, sans-serif";
+    for (const ln of b.lines) { ctx.fillText(ln, W / 2, y); y += b.px * 1.2; }
+  }
+  return canvas;
+}
+
+function rotateCanvas(src, deg) {
+  deg = ((deg % 360) + 360) % 360;
+  if (deg === 0) return src;
+  const out = document.createElement("canvas");
+  const ctx = out.getContext("2d");
+  if (deg === 90 || deg === 270) { out.width = src.height; out.height = src.width; }
+  else { out.width = src.width; out.height = src.height; }
+  if (deg === 90) { ctx.translate(out.width, 0); ctx.rotate(Math.PI / 2); }
+  else if (deg === 180) { ctx.translate(out.width, out.height); ctx.rotate(Math.PI); }
+  else if (deg === 270) { ctx.translate(0, out.height); ctx.rotate(-Math.PI / 2); }
+  ctx.drawImage(src, 0, 0);
+  return out;
+}
+
+function currentLabelBlob() {
+  return new Promise((resolve) => {
+    const rot = parseInt($("rot").value, 10) || 0;
+    const c = rotateCanvas(buildLabelCanvas(rows[current]), rot);
+    c.toBlob((b) => resolve(b), "image/png");
+  });
+}
+
+function downloadBlob(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+async function shareCurrent() {
+  if (rows.length === 0) return;
+  const blob = await currentLabelBlob();
+  const file = new File([blob], "label-" + (current + 1) + ".png", { type: "image/png" });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file] }); }
+    catch (e) { /* пользователь отменил — игнорируем */ }
+  } else {
+    downloadBlob(blob, file.name);
+    setStatus("Картинка сохранена — откройте её в приложении принтера", false);
+  }
+}
+
+$("shareBtn").addEventListener("click", shareCurrent);
+$("downloadBtn").addEventListener("click", async () => {
+  if (rows.length === 0) return;
+  const blob = await currentLabelBlob();
+  downloadBlob(blob, "label-" + (current + 1) + ".png");
 });
 
 /* старт */
