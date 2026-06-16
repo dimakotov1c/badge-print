@@ -10,6 +10,7 @@
     --label-h: 50mm;
     --name-size: 7mm;
     --line-size: 6mm;
+    --loto-size: 4mm;
   }
 
   * { box-sizing: border-box; }
@@ -89,6 +90,28 @@
     align-items: center;
     text-align: center;
     overflow: hidden;
+    position: relative;
+  }
+  /* когда снизу печатаются номера ЛОТО — текст прижимается к верху, номера остаются внизу */
+  .label.has-loto { justify-content: flex-start; padding-bottom: 13mm; }
+  .label .loto {
+    position: absolute;
+    left: 5mm;
+    bottom: 3mm;
+    display: flex;
+    gap: 1.2mm;
+  }
+  .label .loto span {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: calc(var(--loto-size) * 1.8);
+    height: calc(var(--loto-size) * 1.8);
+    border: 0.4mm solid #000;
+    border-radius: 50%;
+    font-size: var(--loto-size);
+    font-weight: 700;
+    line-height: 1;
   }
   .label .name {
     font-size: var(--name-size);
@@ -141,7 +164,8 @@
     <label class="field" for="paste">…или вставьте таблицу сюда</label>
     <textarea id="paste" placeholder="Имя,Фамилия,Компания,Должность&#10;Иван,Иванов,ООО «Гелиос»,Менеджер&#10;Анна,Петрова,ООО &quot;Формула АйТи&quot;,Директор"></textarea>
     <div class="hint">
-      Колонки по порядку: <b>Имя, Фамилия, Компания, Должность</b>. Первая строка — заголовки.
+      Колонки по порядку: <b>Имя, Фамилия, Компания, Должность</b> и, при наличии,
+      <b>5 чисел ЛОТО</b> (Ч1…Ч5). Первая строка — заголовки.
       Разделитель (запятая / «;» / табуляция) и кодировка (UTF-8 / Windows-1251) определяются
       автоматически. Кавычки «ёлочки» и прямые "…" внутри названий обрабатываются корректно.
     </div>
@@ -161,6 +185,13 @@
       <div><label class="field" for="ns">Шрифт имени, мм</label><input type="number" id="ns" value="7" min="2" step="0.5"></div>
       <div><label class="field" for="ls">Шрифт строк, мм</label><input type="number" id="ls" value="6" min="2" step="0.5"></div>
     </div>
+    <div class="row" style="margin-top:6px">
+      <div><label class="field" for="lts">Шрифт ЛОТО, мм</label><input type="number" id="lts" value="4" min="2" step="0.5"></div>
+    </div>
+    <label class="field" style="display:flex; align-items:center; gap:8px; margin-top:12px">
+      <input type="checkbox" id="lotoOpt" checked style="width:auto; flex:0 0 auto">
+      <span>Печатать номер ЛОТО слева внизу (если числа есть в списке)</span>
+    </label>
     <div class="hint" style="margin-top:8px">
       На iPhone финальный размер бумаги задаёт сам принтер в диалоге печати —
       если будет выбор носителя, укажите 100×50 мм.
@@ -280,9 +311,22 @@ function buildRows(text) {
   const data = recs.length > 1 ? recs.slice(1) : recs;
   rows = data.map(cells => {
     const t = cells.map(c => c.trim());
-    // Колонки: Имя, Фамилия, Компания, Должность
+    // Колонки: Имя, Фамилия, Компания, Должность[, Ч1, Ч2, Ч3, Ч4, Ч5]
     const name = [t[0], t[1]].filter(c => c).join(" ");
-    return { name, lines: t.slice(2).filter(c => c !== "") };
+    let lines, loto = null;
+    if (t.length >= 9) {
+      // последние 5 колонок — числа ЛОТО
+      const nums = [];
+      for (let k = 4; k < 9; k++) {
+        const n = parseInt(t[k], 10);
+        if (!isNaN(n)) nums.push(n);
+      }
+      if (nums.length === 5) loto = nums;
+      lines = t.slice(2, 4).filter(c => c !== "");
+    } else {
+      lines = t.slice(2).filter(c => c !== "");
+    }
+    return { name, lines, loto };
   }).filter(r => r.name !== "" || r.lines.length > 0);
   current = 0;
 }
@@ -291,6 +335,7 @@ function buildRows(text) {
 function renderCurrent() {
   const lbl = $("printLabel");
   if (rows.length === 0) {
+    lbl.classList.remove("has-loto");
     lbl.innerHTML =
       '<div class="name">ИМЯ ФАМИЛИЯ</div>' +
       '<div class="line">Компания</div>' +
@@ -309,6 +354,11 @@ function renderCurrent() {
   const r = rows[current];
   let html = '<div class="name">' + esc(r.name) + '</div>';
   for (const l of r.lines) html += '<div class="line">' + esc(l) + '</div>';
+  const showLoto = $("lotoOpt").checked && !!r.loto;
+  if (showLoto) {
+    html += '<div class="loto">' + r.loto.map(n => '<span>' + n + '</span>').join("") + '</div>';
+  }
+  lbl.classList.toggle("has-loto", showLoto);
   lbl.innerHTML = html;
   $("counter").textContent = (current + 1) + " / " + rows.length;
   $("prevBtn").disabled = current === 0;
@@ -336,6 +386,7 @@ function applySizes() {
   r.setProperty("--label-h", ($("h").value || 50) + "mm");
   r.setProperty("--name-size", ($("ns").value || 7) + "mm");
   r.setProperty("--line-size", ($("ls").value || 6) + "mm");
+  r.setProperty("--loto-size", ($("lts").value || 4) + "mm");
 }
 
 /* ---------- События ---------- */
@@ -360,7 +411,9 @@ $("paste").addEventListener("input", () => { buildRows($("paste").value); render
 $("prevBtn").addEventListener("click", () => { if (current > 0) { current--; renderCurrent(); } });
 $("nextBtn").addEventListener("click", () => { if (current < rows.length - 1) { current++; renderCurrent(); } });
 
-for (const id of ["w", "h", "ns", "ls"]) $(id).addEventListener("input", applySizes);
+for (const id of ["w", "h", "ns", "ls", "lts"]) $(id).addEventListener("input", applySizes);
+$("lts").addEventListener("input", renderCurrent);
+$("lotoOpt").addEventListener("change", renderCurrent);
 
 $("printBtn").addEventListener("click", () => {
   if (rows.length === 0) { setStatus("Сначала загрузите список", true); return; }
@@ -370,9 +423,9 @@ $("printBtn").addEventListener("click", () => {
 
 $("demoBtn").addEventListener("click", () => {
   const demo =
-    "Имя,Фамилия,Компания,Должность\n" +
-    "Иван,Иванов,ООО «Рога и копыта»,Менеджер по продажам\n" +
-    "Анна,Петрова,ООО \"Буду делать\",Финансовый директор\n" +
+    "Имя,Фамилия,Компания,Должность,Ч1,Ч2,Ч3,Ч4,Ч5\n" +
+    "Иван,Иванов,ООО «Рога и копыта»,Менеджер по продажам,5,14,25,47,91\n" +
+    "Анна,Петрова,ООО \"Буду делать\",Финансовый директор,7,19,49,55,73\n" +
     "Пётр,Сидоров,ИП Сидоров,Разработчик";
   $("paste").value = demo;
   buildRows(demo);
@@ -403,7 +456,11 @@ function buildLabelCanvas(row) {
   const nameMm = parseFloat($("ns").value) || 7;
   const lineMm = parseFloat($("ls").value) || 6;
   const padX = Math.round(5 * S), padY = Math.round(4 * S), gap = Math.round(2 * S);
-  const availW = W - 2 * padX, availH = H - 2 * padY;
+  const availW = W - 2 * padX;
+  // если снизу печатаются номера ЛОТО — резервируем место, текст центрируется выше
+  const showLoto = $("lotoOpt").checked && !!row.loto;
+  const padBottom = showLoto ? Math.round(13 * S) : padY;
+  const availH = H - padY - padBottom;
 
   const canvas = document.createElement("canvas");
   canvas.width = W; canvas.height = H;
@@ -431,12 +488,35 @@ function buildLabelCanvas(row) {
   ctx.fillStyle = "#000";
   ctx.textAlign = "center"; ctx.textBaseline = "top";
 
-  let y = padY + Math.max(0, (availH - L.total) / 2);
+  let y = padY + (showLoto ? 0 : Math.max(0, (availH - L.total) / 2));
   for (let i = 0; i < L.blocks.length; i++) {
     const b = L.blocks[i];
     if (i > 0) y += gap;
     ctx.font = (b.bold ? "bold " : "") + b.px + "px Arial, sans-serif";
     for (const ln of b.lines) { ctx.fillText(ln, W / 2, y); y += b.px * 1.2; }
+  }
+
+  // номера ЛОТО в кружочках слева внизу (если включено и числа заданы)
+  if ($("lotoOpt").checked && row.loto) {
+    const lotoPx = (parseFloat($("lts").value) || 4) * S;
+    const d = Math.round(lotoPx * 1.8);          // диаметр круга
+    const gap = Math.round(lotoPx * 0.3);
+    const rad = d / 2;
+    const cy = H - Math.round(3 * S) - rad;       // центр по вертикали
+    let cx = padX + rad;
+    ctx.font = "bold " + lotoPx + "px Arial, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.lineWidth = Math.max(1, Math.round(0.4 * S));
+    ctx.strokeStyle = "#000";
+    ctx.fillStyle = "#000";
+    for (const n of row.loto) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, rad, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillText(String(n), cx, cy + Math.round(lotoPx * 0.05));
+      cx += d + gap;
+    }
   }
   return canvas;
 }
