@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Печать этикеток участников</title>
+<style>
+  :root {
+    --label-w: 90mm;
+    --label-h: 58mm;
+    --name-size: 7mm;
+    --line-size: 6mm;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    background: #f2f3f5;
+    color: #1d1d1f;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  .panel { max-width: 720px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 20px; margin: 4px 0 12px; }
+  h2 { font-size: 14px; margin: 0 0 10px; color: #444; }
+
+  .card {
+    background: #fff;
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 14px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.08);
+  }
+
+  label.field { display: block; font-size: 13px; color: #555; margin: 10px 0 4px; }
+
+  input[type="file"],
+  input[type="number"],
+  textarea {
+    width: 100%;
+    font-size: 16px;                 /* >=16px чтобы iOS не зумил */
+    padding: 10px;
+    border: 1px solid #ccd0d5;
+    border-radius: 8px;
+    background: #fff;
+  }
+  textarea { min-height: 84px; resize: vertical; font-family: monospace; }
+
+  .row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .row > div { flex: 1; min-width: 110px; }
+
+  button {
+    font-size: 17px;
+    font-weight: 600;
+    padding: 14px 18px;
+    border: none;
+    border-radius: 10px;
+    background: #0a84ff;
+    color: #fff;
+    width: 100%;
+    cursor: pointer;
+  }
+  button:active { background: #006ee6; }
+  button.secondary { background: #e7e8ea; color: #1d1d1f; }
+  button:disabled { opacity: .4; }
+
+  .status { font-size: 13px; color: #666; margin-top: 8px; min-height: 18px; }
+  .status.error { color: #c00; }
+  .hint { font-size: 12px; color: #888; line-height: 1.4; }
+
+  /* ---------- Навигация по этикеткам ---------- */
+  .nav { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+  .nav button { width: auto; flex: 0 0 auto; padding: 12px 20px; }
+  .counter { flex: 1; text-align: center; font-weight: 600; font-size: 16px; }
+
+  /* ---------- Этикетка ---------- */
+  .label {
+    width: var(--label-w);
+    height: var(--label-h);
+    background: #fff;
+    margin: 0 auto;
+    padding: 4mm 5mm;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    overflow: hidden;
+  }
+  .label .name {
+    font-size: var(--name-size);
+    font-weight: 700;
+    line-height: 1.1;
+    width: 100%;
+    word-break: break-word;
+  }
+  .label .line {
+    font-size: var(--line-size);
+    line-height: 1.3;
+    margin-top: 2mm;
+    width: 100%;
+    word-break: break-word;
+  }
+  /* рамка-обрамление только на экране */
+  .screen-frame {
+    border: 1px dashed #b0b4ba;
+    border-radius: 4px;
+    margin: 0 auto;
+    width: var(--label-w);
+  }
+
+  /* ---------- Режим печати: только текущая этикетка ---------- */
+  @media print {
+    @page { size: var(--label-w) var(--label-h); margin: 0; }
+    body { background: #fff; }
+    body * { visibility: hidden; }
+    #printLabel, #printLabel * { visibility: visible; }
+    #printLabel {
+      position: absolute;
+      left: 0; top: 0;
+      margin: 0;
+      border: none;
+      width: var(--label-w);
+      height: var(--label-h);
+    }
+  }
+</style>
+</head>
+<body>
+
+<div class="panel">
+  <h1>Этикетки участников конференции</h1>
+
+  <!-- ЗАГРУЗКА -->
+  <div class="card">
+    <h2>1. Список участников (CSV)</h2>
+    <input type="file" id="file" accept=".csv,text/csv,text/plain">
+    <label class="field" for="paste">…или вставьте таблицу сюда</label>
+    <textarea id="paste" placeholder="Имя,Фамилия,Компания,Должность&#10;Иван,Иванов,ООО «Гелиос»,Менеджер&#10;Анна,Петрова,ООО &quot;Формула АйТи&quot;,Директор"></textarea>
+    <div class="hint">
+      Колонки по порядку: <b>Имя, Фамилия, Компания, Должность</b>. Первая строка — заголовки.
+      Разделитель (запятая / «;» / табуляция) и кодировка (UTF-8 / Windows-1251) определяются
+      автоматически. Кавычки «ёлочки» и прямые "…" внутри названий обрабатываются корректно.
+    </div>
+    <div class="status" id="status"></div>
+    <div style="height:10px"></div>
+    <button class="secondary" id="demoBtn">Загрузить пример данных</button>
+  </div>
+
+  <!-- РАЗМЕРЫ -->
+  <div class="card">
+    <h2>2. Размер этикетки и шрифта</h2>
+    <div class="row">
+      <div><label class="field" for="w">Ширина, мм</label><input type="number" id="w" value="90" min="10" step="1"></div>
+      <div><label class="field" for="h">Высота, мм</label><input type="number" id="h" value="58" min="10" step="1"></div>
+    </div>
+    <div class="row">
+      <div><label class="field" for="ns">Шрифт имени, мм</label><input type="number" id="ns" value="7" min="2" step="0.5"></div>
+      <div><label class="field" for="ls">Шрифт строк, мм</label><input type="number" id="ls" value="6" min="2" step="0.5"></div>
+    </div>
+    <div class="hint" style="margin-top:8px">
+      На iPhone финальный размер бумаги задаёт сам принтер в диалоге печати —
+      если будет выбор носителя, укажите 90×58 мм.
+    </div>
+  </div>
+
+  <!-- ПРОСМОТР И ПЕЧАТЬ -->
+  <div class="card">
+    <h2>3. Просмотр и печать по одной</h2>
+    <div class="screen-frame">
+      <div class="label" id="printLabel">
+        <div class="name">ИМЯ ФАМИЛИЯ</div>
+        <div class="line">Компания</div>
+        <div class="line">Должность</div>
+      </div>
+    </div>
+
+    <div class="nav">
+      <button class="secondary" id="prevBtn">‹ Назад</button>
+      <div class="counter" id="counter">0 / 0</div>
+      <button class="secondary" id="nextBtn">Вперёд ›</button>
+    </div>
+
+    <div style="height:12px"></div>
+    <button id="printBtn">🖨️ Печать текущей этикетки</button>
+    <div class="hint" style="margin-top:8px">
+      Печатается только показанная этикетка. После печати нажмите «Вперёд ›»
+      и распечатайте следующую.
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+const $ = (id) => document.getElementById(id);
+let rows = [];        // [{ name, lines:[..] }]
+let current = 0;      // индекс текущей этикетки
+
+/* ---------- Чтение файла с авто-определением кодировки ---------- */
+function decodeBytes(buffer) {
+  const bytes = new Uint8Array(buffer);
+  if (bytes.length >= 3 && bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF) {
+    return new TextDecoder("utf-8").decode(bytes.subarray(3));
+  }
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch (e) {
+    try { return new TextDecoder("windows-1251").decode(bytes); }
+    catch (e2) { return new TextDecoder("utf-8").decode(bytes); }
+  }
+}
+
+/* ---------- Парсер CSV ---------- */
+function detectDelimiter(text) {
+  const firstLine = text.split(/\r?\n/, 1)[0] || "";
+  const counts = { ",": 0, ";": 0, "\t": 0 };
+  let inQuotes = false;
+  for (const ch of firstLine) {
+    if (ch === '"') inQuotes = !inQuotes;
+    else if (!inQuotes && ch in counts) counts[ch]++;
+  }
+  let best = ",", bestN = -1;
+  for (const d in counts) if (counts[d] > bestN) { bestN = counts[d]; best = d; }
+  return best;
+}
+
+function parseCSV(text, delim) {
+  const records = [];
+  let field = "", record = [], inQuotes = false, fieldStart = true;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; }   // экранированная кавычка ""
+        else inQuotes = false;                            // закрытие поля в кавычках
+      } else field += ch;
+    } else {
+      if (ch === '"' && fieldStart) { inQuotes = true; }  // кавычка как служебная — только в начале поля
+      else if (ch === delim) { record.push(field); field = ""; fieldStart = true; continue; }
+      else if (ch === "\n") { record.push(field); records.push(record); field = ""; record = []; fieldStart = true; continue; }
+      else if (ch === "\r") { continue; }
+      else field += ch;                                   // всё остальное (вкл. прямые " в середине) — литерал
+    }
+    fieldStart = false;
+  }
+  if (field.length > 0 || record.length > 0) { record.push(field); records.push(record); }
+  return records.filter(r => r.some(c => c.trim() !== ""));
+}
+
+/* ---------- Таблица -> участники ---------- */
+function buildRows(text) {
+  text = text.replace(/^﻿/, "");
+  if (!text.trim()) { rows = []; current = 0; return; }
+  const delim = detectDelimiter(text);
+  const recs = parseCSV(text, delim);
+  if (recs.length === 0) { rows = []; current = 0; return; }
+  const data = recs.length > 1 ? recs.slice(1) : recs;
+  rows = data.map(cells => {
+    const t = cells.map(c => c.trim());
+    // Колонки: Имя, Фамилия, Компания, Должность
+    const name = [t[0], t[1]].filter(c => c).join(" ");
+    return { name, lines: t.slice(2).filter(c => c !== "") };
+  }).filter(r => r.name !== "" || r.lines.length > 0);
+  current = 0;
+}
+
+/* ---------- Отрисовка текущей этикетки ---------- */
+function renderCurrent() {
+  const lbl = $("printLabel");
+  if (rows.length === 0) {
+    lbl.innerHTML =
+      '<div class="name">ИМЯ ФАМИЛИЯ</div>' +
+      '<div class="line">Компания</div>' +
+      '<div class="line">Должность</div>';
+    $("counter").textContent = "0 / 0";
+    $("prevBtn").disabled = true;
+    $("nextBtn").disabled = true;
+    $("printBtn").disabled = true;
+    setStatus("Нет данных — загрузите список", false);
+    return;
+  }
+  if (current < 0) current = 0;
+  if (current > rows.length - 1) current = rows.length - 1;
+  const r = rows[current];
+  let html = '<div class="name">' + esc(r.name) + '</div>';
+  for (const l of r.lines) html += '<div class="line">' + esc(l) + '</div>';
+  lbl.innerHTML = html;
+  $("counter").textContent = (current + 1) + " / " + rows.length;
+  $("prevBtn").disabled = current === 0;
+  $("nextBtn").disabled = current === rows.length - 1;
+  $("printBtn").disabled = false;
+  setStatus("Загружено этикеток: " + rows.length, false);
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"]/g, c =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+
+function setStatus(msg, isError) {
+  const s = $("status");
+  s.textContent = msg;
+  s.classList.toggle("error", !!isError);
+}
+
+function applySizes() {
+  const r = document.documentElement.style;
+  r.setProperty("--label-w", ($("w").value || 90) + "mm");
+  r.setProperty("--label-h", ($("h").value || 58) + "mm");
+  r.setProperty("--name-size", ($("ns").value || 7) + "mm");
+  r.setProperty("--line-size", ($("ls").value || 6) + "mm");
+}
+
+/* ---------- События ---------- */
+$("file").addEventListener("change", (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const text = decodeBytes(reader.result);
+      $("paste").value = text;
+      buildRows(text);
+      renderCurrent();
+    } catch (err) { setStatus("Ошибка чтения файла: " + err.message, true); }
+  };
+  reader.onerror = () => setStatus("Не удалось прочитать файл", true);
+  reader.readAsArrayBuffer(f);
+});
+
+$("paste").addEventListener("input", () => { buildRows($("paste").value); renderCurrent(); });
+
+$("prevBtn").addEventListener("click", () => { if (current > 0) { current--; renderCurrent(); } });
+$("nextBtn").addEventListener("click", () => { if (current < rows.length - 1) { current++; renderCurrent(); } });
+
+for (const id of ["w", "h", "ns", "ls"]) $(id).addEventListener("input", applySizes);
+
+$("printBtn").addEventListener("click", () => {
+  if (rows.length === 0) { setStatus("Сначала загрузите список", true); return; }
+  applySizes();
+  window.print();
+});
+
+$("demoBtn").addEventListener("click", () => {
+  const demo =
+    "Имя,Фамилия,Компания,Должность\n" +
+    "Иван,Иванов,ООО «Рога и копыта»,Менеджер по продажам\n" +
+    "Анна,Петрова,ООО \"Буду делать\",Финансовый директор\n" +
+    "Пётр,Сидоров,ИП Сидоров,Разработчик";
+  $("paste").value = demo;
+  buildRows(demo);
+  renderCurrent();
+});
+
+/* старт */
+applySizes();
+renderCurrent();
+</script>
+</body>
+</html>
