@@ -254,6 +254,30 @@
       После печати нажмите «Вперёд ›» для следующей.
     </div>
   </div>
+
+  <!-- ГРУППОВАЯ ПЕЧАТЬ -->
+  <div class="card" id="batchCard" style="display:none">
+    <h2>4. Групповая печать (партиями)</h2>
+    <div class="row">
+      <div style="flex:0 0 130px">
+        <label class="field" for="batchSize">Размер партии</label>
+        <input type="number" id="batchSize" value="24" min="1" step="1">
+      </div>
+      <div style="flex:1">
+        <label class="field" for="batchSel">Партия</label>
+        <select id="batchSel"></select>
+      </div>
+    </div>
+    <div style="height:12px"></div>
+    <button id="shareBatchBtn">📤 Отправить партию (картинками)</button>
+    <div class="status" id="batchStatus"></div>
+    <div class="hint" style="margin-top:8px">
+      Все картинки выбранной партии формируются и отправляются разом через меню
+      «Поделиться». Если устройство не поддерживает отправку нескольких файлов сразу,
+      картинки будут сохранены по очереди. Поворот, размеры и опция ЛОТО применяются как
+      в одиночной печати.
+    </div>
+  </div>
 </div>
 
 <script>
@@ -349,6 +373,7 @@ function buildRows(text) {
 /* ---------- Отрисовка текущей этикетки ---------- */
 function renderCurrent() {
   const lbl = $("printLabel");
+  rebuildBatches();
   if (rows.length === 0) {
     lbl.classList.remove("has-loto");
     lbl.innerHTML =
@@ -604,6 +629,68 @@ $("downloadBtn").addEventListener("click", async () => {
   const blob = await currentLabelBlob();
   downloadBlob(blob, "label-" + (current + 1) + ".png");
 });
+
+/* ---------- Групповая печать партиями ---------- */
+function batchSizeValue() { return Math.max(1, parseInt($("batchSize").value, 10) || 24); }
+
+function setBatchStatus(msg, isError) {
+  const s = $("batchStatus");
+  s.textContent = msg;
+  s.classList.toggle("error", !!isError);
+}
+
+function rebuildBatches() {
+  const sel = $("batchSel"), card = $("batchCard");
+  if (rows.length === 0) { card.style.display = "none"; sel.innerHTML = ""; setBatchStatus("", false); return; }
+  const size = batchSizeValue();
+  const n = Math.ceil(rows.length / size);
+  const prev = sel.value;
+  sel.innerHTML = "";
+  for (let b = 0; b < n; b++) {
+    const start = b * size + 1, end = Math.min((b + 1) * size, rows.length);
+    const opt = document.createElement("option");
+    opt.value = String(b);
+    opt.textContent = "Партия " + (b + 1) + ": " + start + "–" + end + " (" + (end - start + 1) + " шт.)";
+    sel.appendChild(opt);
+  }
+  if (prev !== "" && +prev < n) sel.value = prev;
+  card.style.display = "block";
+}
+
+function safeName(s, i) {
+  const base = String(s || ("badge-" + (i + 1))).replace(/[^\p{L}\p{N}]+/gu, "_").replace(/^_+|_+$/g, "");
+  return base || ("badge-" + (i + 1));
+}
+
+function labelFileForRow(i) {
+  return new Promise((resolve) => {
+    const rot = parseInt($("rot").value, 10) || 0;
+    const c = rotateCanvas(buildLabelCanvas(rows[i]), rot);
+    c.toBlob((b) => resolve(new File([b], "label-" + (i + 1) + "-" + safeName(rows[i].name, i) + ".png", { type: "image/png" })), "image/png");
+  });
+}
+
+async function shareBatch() {
+  if (rows.length === 0) return;
+  const size = batchSizeValue();
+  const b = parseInt($("batchSel").value, 10) || 0;
+  const start = b * size, end = Math.min(start + size, rows.length);
+  setBatchStatus("Формирование картинок: " + (end - start) + " шт.…", false);
+  const files = [];
+  for (let i = start; i < end; i++) files.push(await labelFileForRow(i));
+  if (navigator.canShare && navigator.canShare({ files })) {
+    try {
+      await navigator.share({ files, title: "Бейджи — партия " + (b + 1) });
+      setBatchStatus("Отправлено картинок: " + files.length, false);
+    } catch (e) { setBatchStatus("Отправка отменена", false); }
+  } else {
+    for (const f of files) { downloadBlob(f, f.name); await new Promise((r) => setTimeout(r, 300)); }
+    setBatchStatus("Сохранено картинок: " + files.length + " (отправка нескольких файлов сразу не поддерживается)", false);
+  }
+}
+
+$("batchSize").addEventListener("input", rebuildBatches);
+$("shareBatchBtn").addEventListener("click", shareBatch);
 
 /* старт */
 applySizes();
