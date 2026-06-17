@@ -10,7 +10,7 @@
     --label-h: 50mm;
     --name-size: 7mm;
     --line-size: 6mm;
-    --loto-size: 4mm;
+    --loto-size: 3mm;
   }
 
   * { box-sizing: border-box; }
@@ -94,6 +94,10 @@
   }
   /* когда снизу печатаются номера ЛОТО — текст прижимается к верху, номера остаются внизу */
   .label.has-loto { justify-content: flex-start; padding-bottom: 13mm; }
+  /* редактирование прямо на бейдже */
+  .label [contenteditable] { cursor: text; border-radius: 3px; }
+  .label [contenteditable]:hover { background: rgba(10,132,255,.07); }
+  .label [contenteditable]:focus { outline: 1px dashed #0a84ff; outline-offset: 1px; background: rgba(10,132,255,.07); }
   .label .loto {
     position: absolute;
     left: 5mm;
@@ -165,10 +169,14 @@
     <textarea id="paste" placeholder="Имя,Фамилия,Компания,Должность&#10;Иван,Иванов,ООО «Гелиос»,Менеджер&#10;Анна,Петрова,ООО &quot;Формула АйТи&quot;,Директор"></textarea>
     <div class="hint">
       Колонки по порядку: <b>Имя, Фамилия, Компания, Должность</b> и, при наличии,
-      <b>5 чисел ЛОТО</b> (Ч1…Ч5). Первая строка — заголовки.
+      <b>5 чисел ЛОТО</b> (Ч1…Ч5).
       Разделитель (запятая / «;» / табуляция) и кодировка (UTF-8 / Windows-1251) определяются
       автоматически. Кавычки «ёлочки» и прямые "…" внутри названий обрабатываются корректно.
     </div>
+    <label class="field" style="display:flex; align-items:center; gap:8px; margin-top:10px">
+      <input type="checkbox" id="headerOpt" checked style="width:auto; flex:0 0 auto">
+      <span>Первая строка — заголовок (не печатать). Снимите, если список сразу с данными.</span>
+    </label>
     <div class="status" id="status"></div>
     <div style="height:10px"></div>
     <button class="secondary" id="demoBtn">Загрузить пример данных</button>
@@ -186,7 +194,7 @@
       <div><label class="field" for="ls">Шрифт строк, мм</label><input type="number" id="ls" value="6" min="2" step="0.5"></div>
     </div>
     <div class="row" style="margin-top:6px">
-      <div><label class="field" for="lts">Шрифт ЛОТО, мм</label><input type="number" id="lts" value="4" min="2" step="0.5"></div>
+      <div><label class="field" for="lts">Шрифт ЛОТО, мм</label><input type="number" id="lts" value="3" min="2" step="0.5"></div>
     </div>
     <label class="field" style="display:flex; align-items:center; gap:8px; margin-top:12px">
       <input type="checkbox" id="lotoOpt" checked style="width:auto; flex:0 0 auto">
@@ -207,6 +215,11 @@
         <div class="line">Компания</div>
         <div class="line">Должность</div>
       </div>
+    </div>
+
+    <div class="hint" style="margin-top:8px; text-align:center">
+      ✏️ Текст можно править прямо на этикетке — изменения попадут в печать, но не меняют список.
+      При переходе к другому бейджу правки сбрасываются. Числа ЛОТО не редактируются.
     </div>
 
     <div class="nav">
@@ -308,7 +321,9 @@ function buildRows(text) {
   const delim = detectDelimiter(text);
   const recs = parseCSV(text, delim);
   if (recs.length === 0) { rows = []; current = 0; return; }
-  const data = recs.length > 1 ? recs.slice(1) : recs;
+  // первая строка — заголовок? (опция). Пропускаем её только если строк больше одной.
+  const skipHeader = $("headerOpt").checked && recs.length > 1;
+  const data = skipHeader ? recs.slice(1) : recs;
   rows = data.map(cells => {
     const t = cells.map(c => c.trim());
     // Колонки: Имя, Фамилия, Компания, Должность[, Ч1, Ч2, Ч3, Ч4, Ч5]
@@ -352,8 +367,8 @@ function renderCurrent() {
   if (current < 0) current = 0;
   if (current > rows.length - 1) current = rows.length - 1;
   const r = rows[current];
-  let html = '<div class="name">' + esc(r.name) + '</div>';
-  for (const l of r.lines) html += '<div class="line">' + esc(l) + '</div>';
+  let html = '<div class="name" contenteditable="true" spellcheck="false">' + esc(r.name) + '</div>';
+  for (const l of r.lines) html += '<div class="line" contenteditable="true" spellcheck="false">' + esc(l) + '</div>';
   const showLoto = $("lotoOpt").checked && !!r.loto;
   if (showLoto) {
     html += '<div class="loto">' + r.loto.map(n => '<span>' + n + '</span>').join("") + '</div>';
@@ -386,7 +401,7 @@ function applySizes() {
   r.setProperty("--label-h", ($("h").value || 50) + "mm");
   r.setProperty("--name-size", ($("ns").value || 7) + "mm");
   r.setProperty("--line-size", ($("ls").value || 6) + "mm");
-  r.setProperty("--loto-size", ($("lts").value || 4) + "mm");
+  r.setProperty("--loto-size", ($("lts").value || 3) + "mm");
 }
 
 /* ---------- События ---------- */
@@ -411,9 +426,15 @@ $("paste").addEventListener("input", () => { buildRows($("paste").value); render
 $("prevBtn").addEventListener("click", () => { if (current > 0) { current--; renderCurrent(); } });
 $("nextBtn").addEventListener("click", () => { if (current < rows.length - 1) { current++; renderCurrent(); } });
 
+// правка прямо на этикетке: Enter не вставляет перенос строки, а завершает ввод
+$("printLabel").addEventListener("keydown", (e) => {
+  if (e.target.isContentEditable && e.key === "Enter") { e.preventDefault(); e.target.blur(); }
+});
+
 for (const id of ["w", "h", "ns", "ls", "lts"]) $(id).addEventListener("input", applySizes);
 $("lts").addEventListener("input", renderCurrent);
 $("lotoOpt").addEventListener("change", renderCurrent);
+$("headerOpt").addEventListener("change", () => { buildRows($("paste").value); renderCurrent(); });
 
 $("printBtn").addEventListener("click", () => {
   if (rows.length === 0) { setStatus("Сначала загрузите список", true); return; }
@@ -498,7 +519,7 @@ function buildLabelCanvas(row) {
 
   // номера ЛОТО в кружочках слева внизу (если включено и числа заданы)
   if ($("lotoOpt").checked && row.loto) {
-    const lotoPx = (parseFloat($("lts").value) || 4) * S;
+    const lotoPx = (parseFloat($("lts").value) || 3) * S;
     const d = Math.round(lotoPx * 1.8);          // диаметр круга
     const gap = Math.round(lotoPx * 0.3);
     const rad = d / 2;
@@ -535,10 +556,23 @@ function rotateCanvas(src, deg) {
   return out;
 }
 
+/* Текущая этикетка для печати: текст берём из превью (с учётом правок на месте),
+   числа ЛОТО — из исходных данных (они не редактируются). */
+function currentDisplayRow() {
+  const lbl = $("printLabel");
+  const nameEl = lbl.querySelector(".name");
+  const name = nameEl ? nameEl.textContent.trim() : "";
+  const lines = [...lbl.querySelectorAll(".line")]
+    .map((el) => el.textContent.trim())
+    .filter((c) => c !== "");
+  const loto = rows[current] ? rows[current].loto : null;
+  return { name, lines, loto };
+}
+
 function currentLabelBlob() {
   return new Promise((resolve) => {
     const rot = parseInt($("rot").value, 10) || 0;
-    const c = rotateCanvas(buildLabelCanvas(rows[current]), rot);
+    const c = rotateCanvas(buildLabelCanvas(currentDisplayRow()), rot);
     c.toBlob((b) => resolve(b), "image/png");
   });
 }
